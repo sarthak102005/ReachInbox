@@ -1,0 +1,112 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: reachinbox_prod_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reachinbox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reachinbox_secure_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-reachinbox_prod}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER:-reachinbox}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: reachinbox_prod_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: reachinbox_prod_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env.production
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - START_WORKER=false
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-reachinbox}:${POSTGRES_PASSWORD:-reachinbox_secure_pass}@postgres:5432/${POSTGRES_DB:-reachinbox_prod}?schema=public
+      - REDIS_URL=redis://redis:6379
+      - ELASTICSEARCH_URL=disabled
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: reachinbox_prod_worker
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    env_file:
+      - ./backend/.env.production
+    environment:
+      - NODE_ENV=production
+      - START_WORKER=true
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-reachinbox}:${POSTGRES_PASSWORD:-reachinbox_secure_pass}@postgres:5432/${POSTGRES_DB:-reachinbox_prod}?schema=public
+      - REDIS_URL=redis://redis:6379
+      - ELASTICSEARCH_URL=disabled
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: reachinbox_prod_frontend
+    restart: unless-stopped
+    env_file:
+      - ./frontend/.env.production
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - BACKEND_URL=http://backend:4000
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: reachinbox_prod_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-example.com}
+      - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

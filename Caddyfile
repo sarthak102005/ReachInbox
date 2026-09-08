@@ -1,0 +1,18 @@
+{
+    email {$ACME_EMAIL:admin@example.com}
+}
+
+{$DOMAIN:localhost} {
+    # Backend API and Bull Board
+    handle /api/* {
+        reverse_proxy backend:4000
+    }
+    handle /admin/* {
+        reverse_proxy backend:4000
+    }
+
+    # Frontend Next.js app
+    handle {
+        reverse_proxy frontend:3000
+    }
+}

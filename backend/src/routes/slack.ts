@@ -16,7 +16,10 @@ function getEffectiveCallbackUrl(req: Request): string {
   if (env.SLACK_CALLBACK_URL && !env.SLACK_CALLBACK_URL.includes('localhost')) {
     return env.SLACK_CALLBACK_URL;
   }
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  if (env.GOOGLE_CALLBACK_URL && !env.GOOGLE_CALLBACK_URL.includes('localhost')) {
+    return env.GOOGLE_CALLBACK_URL.replace(/\/api\/auth\/google\/callback.*$/, '/api/slack/callback');
+  }
+  const host = req.headers.host;
   if (host && !String(host).includes('localhost')) {
     const proto = req.headers['x-forwarded-proto'] || 'https';
     return `${proto}://${host}/api/slack/callback`;

@@ -33,7 +33,7 @@ export function ScheduledTable({ onCompose, searchQuery, refreshTrigger }: Sched
     } else {
       refetch();
     }
-  }, [refreshTrigger, refetch]);
+  }, [refreshTrigger]);
 
   if (loading && jobs.length === 0) {
     return <LoadingSkeleton rows={6} />;

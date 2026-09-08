@@ -17,6 +17,16 @@ interface ComposeModalProps {
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+function getLocalISOString(date: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export function ComposeModal({ open, onClose, onScheduled }: ComposeModalProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -36,9 +46,11 @@ export function ComposeModal({ open, onClose, onScheduled }: ComposeModalProps) 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Load senders on open
+  // Load senders & default start time on open
   useEffect(() => {
     if (!open) return;
+    const defaultTime = getLocalISOString(new Date(Date.now() + 2 * 60000));
+    setForm((f) => ({ ...f, startTime: f.startTime || defaultTime }));
     api.senders.list().then(({ senders: s }) => {
       setSenders(s);
       if (s.length > 0 && !form.senderId) {
@@ -153,9 +165,6 @@ export function ComposeModal({ open, onClose, onScheduled }: ComposeModalProps) 
     setErrors({});
     onClose();
   }
-
-  // Default start time to 5 minutes from now
-  const defaultStartTime = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
 
   return (
     <Modal
@@ -293,7 +302,7 @@ export function ComposeModal({ open, onClose, onScheduled }: ComposeModalProps) 
               label="Start Time"
               id="compose-start-time"
               type="datetime-local"
-              defaultValue={defaultStartTime}
+              value={form.startTime}
               onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
               error={errors.startTime}
               required

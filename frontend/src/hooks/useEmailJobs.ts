@@ -61,6 +61,10 @@ function useEmailJobs(type: 'scheduled' | 'sent', limit = 20): UseEmailJobsRetur
     };
   }, [fetchJobs, page, type]);
 
+  const refetch = useCallback(() => {
+    fetchJobs(page, false);
+  }, [fetchJobs, page]);
+
   return {
     jobs: data.jobs,
     total: data.total,
@@ -69,7 +73,7 @@ function useEmailJobs(type: 'scheduled' | 'sent', limit = 20): UseEmailJobsRetur
     loading,
     error,
     setPage: (p: number) => setPage(p),
-    refetch: () => fetchJobs(page, false),
+    refetch,
   };
 }
 

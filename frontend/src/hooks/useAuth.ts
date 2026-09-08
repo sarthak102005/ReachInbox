@@ -21,6 +21,22 @@ export function useAuth(): UseAuthReturn {
     try {
       setLoading(true);
       setError(null);
+
+      // Check if token was provided in URL (cross-domain OAuth redirect from Render to Vercel)
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const urlToken = params.get('token');
+        if (urlToken) {
+          localStorage.setItem('reachinbox_token', urlToken);
+          // Set first-party cookie on Vercel domain as well
+          document.cookie = `session=${urlToken}; path=/; max-age=604800; SameSite=Lax`;
+          // Clean token from address bar
+          params.delete('token');
+          const cleanQuery = params.toString() ? `?${params.toString()}` : '';
+          window.history.replaceState({}, '', `${window.location.pathname}${cleanQuery}`);
+        }
+      }
+
       const { user: u } = await api.auth.me();
       setUser(u);
     } catch {
@@ -36,7 +52,15 @@ export function useAuth(): UseAuthReturn {
   }, [fetchUser]);
 
   const logout = useCallback(async () => {
-    await api.auth.logout();
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('reachinbox_token');
+      document.cookie = 'session=; path=/; max-age=0';
+    }
+    try {
+      await api.auth.logout();
+    } catch {
+      // ignore
+    }
     setUser(null);
     window.location.href = '/login';
   }, []);

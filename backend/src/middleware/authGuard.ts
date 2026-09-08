@@ -23,7 +23,9 @@ declare global {
  * Returns 401 if missing or invalid.
  */
 export function authGuard(req: Request, res: Response, next: NextFunction): void {
-  const token = req.cookies?.session;
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+  const token = req.cookies?.session || bearerToken;
 
   if (!token) {
     res.status(401).json({ error: 'Not authenticated' });

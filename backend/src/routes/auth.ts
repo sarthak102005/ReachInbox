@@ -131,15 +131,20 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       console.log(`[Auth] Auto-provisioned Ethereal sender for ${email}: ${etUser}`);
     }
 
-    // Issue JWT cookie
-    setSessionCookie(res, {
+    const sessionPayload = {
       userId: user.id,
       email: user.email,
       name: user.name,
       avatarUrl: user.avatarUrl,
-    });
+    };
 
-    res.redirect(`${frontendUrl}/dashboard`);
+    // Issue JWT cookie (for same-domain / proxy setups)
+    setSessionCookie(res, sessionPayload);
+
+    // Also pass token in URL for cross-domain (Vercel <-> Render) authentication
+    const token = jwt.sign(sessionPayload, env.SESSION_SECRET, { expiresIn: '7d' });
+
+    res.redirect(`${frontendUrl}/dashboard?token=${encodeURIComponent(token)}`);
   } catch (err: any) {
     console.error('[Auth] Google callback error:', err.response?.data ?? err.message);
     res.redirect(`${frontendUrl}/login?error=auth_failed`);

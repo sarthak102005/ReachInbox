@@ -35,10 +35,21 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ─── Middleware ────────────────────────────────────────────────────────────────
+const allowedOrigins = [
+  env.FRONTEND_URL,
+  env.FRONTEND_URL.replace(/\/+$/, ''),
+  'http://localhost:3000',
+];
 
 app.use(cors({
-  origin: env.FRONTEND_URL,
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const normalized = origin.replace(/\/+$/, '');
+    if (allowedOrigins.some(o => o.replace(/\/+$/, '') === normalized) || origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
   credentials: true,
 }));
 

@@ -1,16 +1,27 @@
 'use client';
 
-import type { Metadata } from 'next';
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
-// Note: metadata must be exported from a Server Component;
-// this page is client-only, so we add a head tag via layout.
-
-export default function LoginPage() {
+function LoginContent() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const errorParam = searchParams.get('error');
+    if (errorParam === 'auth_failed') {
+      setErrorMsg('Google authentication failed. Please verify redirect URIs in Google Cloud Console.');
+    } else if (errorParam === 'invalid_state' || errorParam === 'missing_state') {
+      setErrorMsg('Security state token mismatch or expired. Please try signing in again.');
+    } else if (errorParam === 'oauth_denied') {
+      setErrorMsg('Sign-in was cancelled or denied by Google.');
+    } else if (errorParam) {
+      setErrorMsg(`Sign-in error: ${errorParam}`);
+    }
+  }, [searchParams]);
 
   // Redirect to dashboard if already logged in
   useEffect(() => {
@@ -20,7 +31,6 @@ export default function LoginPage() {
   }, [user, loading, router]);
 
   const handleGoogleLogin = () => {
-    // Navigate directly to backend OAuth (goes through Next.js rewrite to localhost:4000)
     window.location.href = '/api/auth/google';
   };
 
@@ -77,9 +87,16 @@ export default function LoginPage() {
           <h2 className="text-xl font-semibold text-text-primary mb-2 text-center">
             Welcome back
           </h2>
-          <p className="text-sm text-text-secondary text-center mb-8">
+          <p className="text-sm text-text-secondary text-center mb-6">
             Sign in to manage your email campaigns
           </p>
+
+          {/* Error Banner */}
+          {errorMsg && (
+            <div className="mb-6 p-3 bg-error/10 border border-error/30 rounded-xl text-xs text-error text-center font-medium">
+              ⚠️ {errorMsg}
+            </div>
+          )}
 
           {/* Google Sign In button */}
           <button
@@ -138,5 +155,13 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-bg flex items-center justify-center text-text-muted">Loading...</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }

@@ -21,7 +21,7 @@ function setSessionCookie(res: Response, payload: object): void {
   const token = jwt.sign(payload, env.SESSION_SECRET, { expiresIn: '7d' });
   res.cookie('session', token, {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
     secure: env.NODE_ENV === 'production',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   });
@@ -52,28 +52,29 @@ router.get('/google', async (req: Request, res: Response) => {
 
 router.get('/google/callback', async (req: Request, res: Response) => {
   const { code, state, error } = req.query as Record<string, string>;
+  const frontendUrl = env.FRONTEND_URL.replace(/\/+$/, '');
 
   if (error) {
     console.error('[Auth] Google OAuth error:', error);
-    return res.redirect(`${env.FRONTEND_URL}/login?error=oauth_denied`);
+    return res.redirect(`${frontendUrl}/login?error=oauth_denied`);
   }
 
   // Verify state (Correction 4)
   if (!state) {
-    return res.redirect(`${env.FRONTEND_URL}/login?error=missing_state`);
+    return res.redirect(`${frontendUrl}/login?error=missing_state`);
   }
 
   const stateKey = getStateKey(state);
   const storedValue = await redis.get(stateKey);
 
   if (!storedValue) {
-    return res.redirect(`${env.FRONTEND_URL}/login?error=invalid_state`);
+    return res.redirect(`${frontendUrl}/login?error=invalid_state`);
   }
 
   await redis.del(stateKey); // One-time use
 
   if (!code) {
-    return res.redirect(`${env.FRONTEND_URL}/login?error=missing_code`);
+    return res.redirect(`${frontendUrl}/login?error=missing_code`);
   }
 
   try {
@@ -138,10 +139,10 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       avatarUrl: user.avatarUrl,
     });
 
-    res.redirect(`${env.FRONTEND_URL}/dashboard`);
+    res.redirect(`${frontendUrl}/dashboard`);
   } catch (err: any) {
-    console.error('[Auth] Google callback error:', err.message);
-    res.redirect(`${env.FRONTEND_URL}/login?error=auth_failed`);
+    console.error('[Auth] Google callback error:', err.response?.data ?? err.message);
+    res.redirect(`${frontendUrl}/login?error=auth_failed`);
   }
 });
 
@@ -156,7 +157,7 @@ router.get('/me', authGuard, (req: Request, res: Response) => {
 router.post('/logout', (_req: Request, res: Response) => {
   res.clearCookie('session', {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
     secure: env.NODE_ENV === 'production',
   });
   res.json({ success: true });

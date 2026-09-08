@@ -25,7 +25,8 @@ declare global {
 export function authGuard(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
-  const token = req.cookies?.session || bearerToken;
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
+  const token = req.cookies?.session || bearerToken || queryToken;
 
   if (!token) {
     res.status(401).json({ error: 'Not authenticated' });

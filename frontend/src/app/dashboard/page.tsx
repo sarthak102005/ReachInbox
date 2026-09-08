@@ -25,7 +25,8 @@ function SlackBadge() {
   }, []);
 
   const handleConnect = () => {
-    window.location.href = '/api/slack/connect';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('reachinbox_token') : '';
+    window.location.href = token ? `/api/slack/connect?token=${encodeURIComponent(token)}` : '/api/slack/connect';
   };
 
   const handleDisconnect = async () => {
@@ -165,6 +166,8 @@ function DashboardInner() {
       toast('success', '✅ Slack connected successfully!');
     } else if (slackParam === 'denied') {
       toast('info', 'Slack connection cancelled');
+    } else if (slackParam === 'not_configured') {
+      toast('error', 'Slack integration not configured. Please add SLACK_CLIENT_ID & SLACK_CLIENT_SECRET to Render Environment Variables.');
     } else if (slackParam === 'error') {
       toast('error', 'Slack connection failed');
     }

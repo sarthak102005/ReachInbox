@@ -15,6 +15,11 @@ function getSlackStateKey(state: string): string {
 // ─── GET /api/slack/connect — Initiate Slack OAuth (Correction 4: state param) ─
 
 router.get('/connect', authGuard, async (req: Request, res: Response) => {
+  const frontendUrl = env.FRONTEND_URL.replace(/\/+$/, '');
+  if (!env.SLACK_CLIENT_ID || !env.SLACK_CLIENT_SECRET) {
+    return res.redirect(`${frontendUrl}/dashboard?slack=not_configured`);
+  }
+
   // Generate CSRF-proof state token embedding userId
   const state = crypto.randomBytes(16).toString('hex');
   const userId = req.user!.userId;
@@ -36,27 +41,28 @@ router.get('/connect', authGuard, async (req: Request, res: Response) => {
 
 router.get('/callback', async (req: Request, res: Response) => {
   const { code, state, error } = req.query as Record<string, string>;
+  const frontendUrl = env.FRONTEND_URL.replace(/\/+$/, '');
 
   if (error === 'access_denied') {
-    return res.redirect(`${env.FRONTEND_URL}/dashboard?slack=denied`);
+    return res.redirect(`${frontendUrl}/dashboard?slack=denied`);
   }
 
   // Verify state (Correction 4)
   if (!state) {
-    return res.redirect(`${env.FRONTEND_URL}/dashboard?slack=invalid_state`);
+    return res.redirect(`${frontendUrl}/dashboard?slack=invalid_state`);
   }
 
   const stateKey = getSlackStateKey(state);
   const userId = await redis.get(stateKey);
 
   if (!userId) {
-    return res.redirect(`${env.FRONTEND_URL}/dashboard?slack=invalid_state`);
+    return res.redirect(`${frontendUrl}/dashboard?slack=invalid_state`);
   }
 
   await redis.del(stateKey); // One-time use
 
   if (!code) {
-    return res.redirect(`${env.FRONTEND_URL}/dashboard?slack=missing_code`);
+    return res.redirect(`${frontendUrl}/dashboard?slack=missing_code`);
   }
 
   try {
@@ -87,11 +93,11 @@ router.get('/callback', async (req: Request, res: Response) => {
 
     if (!data.ok) {
       console.error('[Slack] OAuth error:', data.error);
-      return res.redirect(`${env.FRONTEND_URL}/dashboard?slack=error&msg=${encodeURIComponent(data.error ?? 'unknown')}`);
+      return res.redirect(`${frontendUrl}/dashboard?slack=error&msg=${encodeURIComponent(data.error ?? 'unknown')}`);
     }
 
     if (!data.incoming_webhook?.url) {
-      return res.redirect(`${env.FRONTEND_URL}/dashboard?slack=no_webhook`);
+      return res.redirect(`${frontendUrl}/dashboard?slack=no_webhook`);
     }
 
     // Upsert SlackIntegration
@@ -112,10 +118,10 @@ router.get('/callback', async (req: Request, res: Response) => {
     });
 
     console.log(`[Slack] Integration stored for user ${userId} (team: ${data.team.name})`);
-    res.redirect(`${env.FRONTEND_URL}/dashboard?slack=connected`);
+    res.redirect(`${frontendUrl}/dashboard?slack=connected`);
   } catch (err: any) {
     console.error('[Slack] Callback error:', err.message);
-    res.redirect(`${env.FRONTEND_URL}/dashboard?slack=error`);
+    res.redirect(`${frontendUrl}/dashboard?slack=error`);
   }
 });
 

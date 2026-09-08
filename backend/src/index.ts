@@ -27,6 +27,14 @@ const app = express();
 // Trust reverse proxy (Caddy / Cloudflare / Nginx) for HTTPS headers
 app.set('trust proxy', 1);
 
+// Normalize duplicate leading slashes (e.g. //api/... -> /api/...)
+app.use((req, _res, next) => {
+  if (req.url.startsWith('//')) {
+    req.url = req.url.replace(/^\/+/, '/');
+  }
+  next();
+});
+
 // ─── Middleware ────────────────────────────────────────────────────────────────
 
 app.use(cors({

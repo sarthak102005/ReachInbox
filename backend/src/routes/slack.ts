@@ -12,6 +12,18 @@ function getSlackStateKey(state: string): string {
   return `oauth:state:${state}`;
 }
 
+function getEffectiveCallbackUrl(req: Request): string {
+  if (env.SLACK_CALLBACK_URL && !env.SLACK_CALLBACK_URL.includes('localhost')) {
+    return env.SLACK_CALLBACK_URL;
+  }
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  if (host && !String(host).includes('localhost')) {
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    return `${proto}://${host}/api/slack/callback`;
+  }
+  return env.SLACK_CALLBACK_URL;
+}
+
 // ─── GET /api/slack/connect — Initiate Slack OAuth (Correction 4: state param) ─
 
 router.get('/connect', authGuard, async (req: Request, res: Response) => {
@@ -23,13 +35,14 @@ router.get('/connect', authGuard, async (req: Request, res: Response) => {
   // Generate CSRF-proof state token embedding userId
   const state = crypto.randomBytes(16).toString('hex');
   const userId = req.user!.userId;
+  const callbackUrl = getEffectiveCallbackUrl(req);
 
-  // Store userId in Redis with 5-minute TTL
-  await redis.set(getSlackStateKey(state), userId, 'EX', 300);
+  // Store userId and callbackUrl in Redis with 5-minute TTL
+  await redis.set(getSlackStateKey(state), JSON.stringify({ userId, callbackUrl }), 'EX', 300);
 
   const params = new URLSearchParams({
     client_id: env.SLACK_CLIENT_ID,
-    redirect_uri: env.SLACK_CALLBACK_URL,
+    redirect_uri: callbackUrl,
     scope: 'incoming-webhook',
     state,
   });
@@ -53,10 +66,21 @@ router.get('/callback', async (req: Request, res: Response) => {
   }
 
   const stateKey = getSlackStateKey(state);
-  const userId = await redis.get(stateKey);
+  const rawState = await redis.get(stateKey);
 
-  if (!userId) {
+  if (!rawState) {
     return res.redirect(`${frontendUrl}/dashboard?slack=invalid_state`);
+  }
+
+  let userId: string;
+  let redirectUri = getEffectiveCallbackUrl(req);
+
+  try {
+    const parsed = JSON.parse(rawState);
+    userId = parsed.userId;
+    if (parsed.callbackUrl) redirectUri = parsed.callbackUrl;
+  } catch {
+    userId = rawState;
   }
 
   await redis.del(stateKey); // One-time use
@@ -69,7 +93,7 @@ router.get('/callback', async (req: Request, res: Response) => {
     // Exchange code for Slack token
     const params = new URLSearchParams({
       code,
-      redirect_uri: env.SLACK_CALLBACK_URL,
+      redirect_uri: redirectUri,
     });
 
     const response = await axios.post<{

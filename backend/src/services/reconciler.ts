@@ -36,8 +36,17 @@ export async function reconcilePendingJobs(): Promise<void> {
 
   for (const job of pendingJobs) {
     try {
+      // BullMQ forbids colons (:) in custom job IDs. Normalize any existing IDs in DB:
+      const cleanJobId = job.bullJobId.replace(/:/g, '-');
+      if (cleanJobId !== job.bullJobId) {
+        await prisma.emailJob.update({
+          where: { id: job.id },
+          data: { bullJobId: cleanJobId },
+        });
+      }
+
       // Check if the BullMQ job already exists in Redis
-      const existingBullJob = await emailQueue.getJob(job.bullJobId);
+      const existingBullJob = await emailQueue.getJob(cleanJobId);
 
       if (existingBullJob) {
         alreadyQueued++;
@@ -73,14 +82,14 @@ export async function reconcilePendingJobs(): Promise<void> {
         'send-email',
         { emailJobId: job.id },
         {
-          jobId: job.bullJobId,
+          jobId: cleanJobId,
           delay,
         },
       );
 
       requeued++;
       console.log(
-        `[Reconciler] Re-enqueued job ${job.bullJobId} (delay=${delay}ms, recipient=${job.recipientEmail})`,
+        `[Reconciler] Re-enqueued job ${cleanJobId} (delay=${delay}ms, recipient=${job.recipientEmail})`,
       );
     } catch (err: any) {
       // If jobId already exists in Redis but we couldn't fetch it, BullMQ will throw

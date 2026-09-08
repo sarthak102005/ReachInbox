@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
 import { authGuard } from '../middleware/authGuard';
 import { emailQueue } from '../queues/emailQueue';
@@ -19,7 +19,8 @@ function validateEmail(email: string): boolean {
 
 // ─── POST /api/emails/schedule ────────────────────────────────────────────────
 
-router.post('/schedule', async (req: Request, res: Response) => {
+router.post('/schedule', async (req: Request, res: Response, next: NextFunction) => {
+  try {
   const {
     subject,
     body,
@@ -143,8 +144,8 @@ router.post('/schedule', async (req: Request, res: Response) => {
       },
     });
 
-    // Deterministic jobId derived from DB primary key
-    const bullJobId = `email-job:${emailJob.id}`;
+    // Deterministic jobId derived from DB primary key (hyphen-separated — BullMQ forbids colons)
+    const bullJobId = `email-job-${emailJob.id}`;
 
     await prisma.emailJob.update({
       where: { id: emailJob.id },
@@ -180,97 +181,112 @@ router.post('/schedule', async (req: Request, res: Response) => {
     invalid,
     jobs: createdJobs,
   });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─── GET /api/emails/scheduled ────────────────────────────────────────────────
 // Returns paginated list with total count (Correction 6)
 
-router.get('/scheduled', async (req: Request, res: Response) => {
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+router.get('/scheduled', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
 
-  const scheduledStatuses = ['SCHEDULED', 'RESCHEDULED'] as const;
-  const where = {
-    userId: req.user!.userId,
-    status: { in: [...scheduledStatuses] },
-  };
+    const scheduledStatuses = ['SCHEDULED', 'RESCHEDULED'] as const;
+    const where = {
+      userId: req.user!.userId,
+      status: { in: [...scheduledStatuses] },
+    };
 
-  const [jobs, total] = await prisma.$transaction([
-    prisma.emailJob.findMany({
-      where,
-      orderBy: { scheduledFor: 'asc' },
-      skip: (page - 1) * limit,
-      take: limit,
-      select: {
-        id: true,
-        recipientEmail: true,
-        subject: true,
-        scheduledFor: true,
-        status: true,
-        attempts: true,
-        createdAt: true,
-        sender: { select: { emailAddress: true, displayName: true } },
-      },
-    }),
-    prisma.emailJob.count({ where }),
-  ]);
+    const [jobs, total] = await prisma.$transaction([
+      prisma.emailJob.findMany({
+        where,
+        orderBy: { scheduledFor: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          recipientEmail: true,
+          subject: true,
+          scheduledFor: true,
+          status: true,
+          attempts: true,
+          createdAt: true,
+          sender: { select: { emailAddress: true, displayName: true } },
+        },
+      }),
+      prisma.emailJob.count({ where }),
+    ]);
 
-  res.json({ jobs, total, page, limit, totalPages: Math.ceil(total / limit) });
+    res.json({ jobs, total, page, limit, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─── GET /api/emails/sent ─────────────────────────────────────────────────────
 
-router.get('/sent', async (req: Request, res: Response) => {
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+router.get('/sent', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
 
-  const sentStatuses = ['SENT', 'FAILED'] as const;
-  const where = {
-    userId: req.user!.userId,
-    status: { in: [...sentStatuses] },
-  };
+    const sentStatuses = ['SENT', 'FAILED'] as const;
+    const where = {
+      userId: req.user!.userId,
+      status: { in: [...sentStatuses] },
+    };
 
-  const [jobs, total] = await prisma.$transaction([
-    prisma.emailJob.findMany({
-      where,
-      orderBy: { updatedAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-      select: {
-        id: true,
-        recipientEmail: true,
-        subject: true,
-        sentAt: true,
-        status: true,
-        lastError: true,
-        attempts: true,
-        updatedAt: true,
-        sender: { select: { emailAddress: true, displayName: true } },
-      },
-    }),
-    prisma.emailJob.count({ where }),
-  ]);
+    const [jobs, total] = await prisma.$transaction([
+      prisma.emailJob.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          recipientEmail: true,
+          subject: true,
+          sentAt: true,
+          status: true,
+          lastError: true,
+          attempts: true,
+          updatedAt: true,
+          sender: { select: { emailAddress: true, displayName: true } },
+        },
+      }),
+      prisma.emailJob.count({ where }),
+    ]);
 
-  res.json({ jobs, total, page, limit, totalPages: Math.ceil(total / limit) });
+    res.json({ jobs, total, page, limit, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─── GET /api/emails/search ──────────────────────────────────────────────────
 
-router.get('/search', async (req: Request, res: Response) => {
-  const q = (req.query.q as string) || '';
-  const status = req.query.status as string | undefined;
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+router.get('/search', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const q = (req.query.q as string) || '';
+    const status = req.query.status as string | undefined;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
 
-  const result = await searchEmails({
-    q: q.trim() || undefined,
-    status: status?.trim() || undefined,
-    userId: req.user!.userId,
-    page,
-    limit,
-  });
+    const result = await searchEmails({
+      q: q.trim() || undefined,
+      status: status?.trim() || undefined,
+      userId: req.user!.userId,
+      page,
+      limit,
+    });
 
-  res.json({ ...result, page, limit });
+    res.json({ ...result, page, limit });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

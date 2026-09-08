@@ -27,33 +27,39 @@ function useEmailJobs(type: 'scheduled' | 'sent', limit = 20): UseEmailJobsRetur
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  const fetch = useCallback(async (p: number) => {
-    setLoading(true);
-    setError(null);
+  const fetchJobs = useCallback(async (p: number, isPolling = false) => {
+    if (!isPolling) {
+      setLoading(true);
+    }
     try {
       const result = type === 'scheduled'
         ? await api.emails.scheduled(p, limit)
         : await api.emails.sent(p, limit);
       setData(result);
+      setError(null);
     } catch (err: any) {
-      setError(err.message);
+      if (!isPolling) {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (!isPolling) {
+        setLoading(false);
+      }
     }
   }, [type, limit]);
 
   // Auto-refresh every 5s when there are SCHEDULED/SENDING jobs
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
-    fetch(page);
+    fetchJobs(page, false);
 
     if (type === 'scheduled') {
-      intervalRef.current = setInterval(() => fetch(page), 5000);
+      intervalRef.current = setInterval(() => fetchJobs(page, true), 5000);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [fetch, page, type]);
+  }, [fetchJobs, page, type]);
 
   return {
     jobs: data.jobs,
@@ -63,7 +69,7 @@ function useEmailJobs(type: 'scheduled' | 'sent', limit = 20): UseEmailJobsRetur
     loading,
     error,
     setPage: (p: number) => setPage(p),
-    refetch: () => fetch(page),
+    refetch: () => fetchJobs(page, false),
   };
 }
 

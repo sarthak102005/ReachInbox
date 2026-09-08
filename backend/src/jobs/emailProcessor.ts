@@ -162,7 +162,7 @@ async function handleRateLimitExceeded(
   const nextWindowMs = nextHour.getTime() + jitter;
   const nextWindowDate = new Date(nextWindowMs);
 
-  const newBullJobId = `email-job:${emailJob.id}:r${newAttempts}`;
+  const newBullJobId = `email-job-${emailJob.id}-r${newAttempts}`;
   const delay = Math.max(0, nextWindowMs - Date.now());
 
   // Update DB row

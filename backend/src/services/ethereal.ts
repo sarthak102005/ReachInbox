@@ -66,46 +66,30 @@ export async function sendEmailViaEthereal(
     pass = acct.pass;
   }
 
-  const port = Number(process.env.ETHEREAL_PORT || 2525);
+  const port = Number(process.env.ETHEREAL_PORT || 587);
   const transporter = nodemailer.createTransport({
     host: 'smtp.ethereal.email',
     port,
     secure: false,
+    requireTLS: true,
     auth: { user, pass },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
   });
 
-  try {
-    const info = await transporter.sendMail({
-      from: `"${sender.displayName}" <${sender.emailAddress}>`,
-      to: job.recipientEmail,
-      subject: job.subject,
-      html: job.body,
-      text: job.body.replace(/<[^>]+>/g, ''), // Strip HTML for text part
-    });
+  const info = await transporter.sendMail({
+    from: `"${sender.displayName}" <${sender.emailAddress}>`,
+    to: job.recipientEmail,
+    subject: job.subject,
+    html: job.body,
+    text: job.body.replace(/<[^>]+>/g, ''), // Strip HTML for text part
+  });
 
-    const previewUrl = nodemailer.getTestMessageUrl(info);
-    console.log(`[Ethereal] Sent ${info.messageId} → preview: ${previewUrl}`);
+  const previewUrl = nodemailer.getTestMessageUrl(info);
+  console.log(`[Ethereal] Sent ${info.messageId} → preview: ${previewUrl}`);
 
-    return { messageId: info.messageId, previewUrl };
-  } catch (err: any) {
-    const isTimeout =
-      err.code === 'ETIMEDOUT' ||
-      err.message?.toLowerCase().includes('timeout') ||
-      err.code === 'ECONNREFUSED' ||
-      err.code === 'ESOCKET';
-
-    if (isTimeout) {
-      const simulatedId = `<ethereal-${Date.now()}-${Math.random().toString(36).slice(2, 9)}@ethereal.email>`;
-      const previewUrl = `https://ethereal.email`;
-      console.warn(`[Ethereal] SMTP connection on port ${port} timed out (Render free tier firewall). Recorded successful delivery in sandbox mode: ${simulatedId}`);
-      return { messageId: simulatedId, previewUrl };
-    }
-
-    throw err;
-  }
+  return { messageId: info.messageId, previewUrl };
 }
 
 /**

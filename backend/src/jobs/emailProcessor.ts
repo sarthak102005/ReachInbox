@@ -42,22 +42,28 @@ interface EmailJobRow {
  * 4. PER-SENDER CONFIG (Correction 1): Rate-limit max is read from RateLimitConfig
  *    for the senderId first, falling back to env.MAX_EMAILS_PER_HOUR.
  */
+export const MAX_JOB_ATTEMPTS = 3;
+
 export async function emailProcessor(job: Job<EmailJobPayload>): Promise<void> {
   const { emailJobId } = job.data;
 
   // ─── Step 1: Atomic idempotency claim ─────────────────────────────────────
-  // Single conditional UPDATE — if another worker already claimed this job,
-  // zero rows come back and we return without doing anything.
+  // Single conditional UPDATE — claims the job if SCHEDULED/RESCHEDULED, or
+  // if FAILED and attempts < MAX_JOB_ATTEMPTS (enabling BullMQ automatic retries).
+  // If 0 rows returned, another worker already processed it or max attempts reached.
   const rows = await prisma.$queryRaw<EmailJobRow[]>`
     UPDATE "EmailJob"
     SET status = 'SENDING', "updatedAt" = NOW()
     WHERE id = ${emailJobId}
-      AND status IN ('SCHEDULED', 'RESCHEDULED')
+      AND (
+        status IN ('SCHEDULED', 'RESCHEDULED')
+        OR (status = 'FAILED' AND attempts < ${MAX_JOB_ATTEMPTS})
+      )
     RETURNING *
   `;
 
   if (rows.length === 0) {
-    console.log(`[Processor] Job ${emailJobId} already claimed or not found — skipping.`);
+    console.log(`[Processor] Job ${emailJobId} already claimed, completed, or exceeded max attempts — skipping.`);
     return;
   }
 
@@ -84,7 +90,7 @@ export async function emailProcessor(job: Job<EmailJobPayload>): Promise<void> {
   if (!sender) {
     await prisma.emailJob.update({
       where: { id: emailJobId },
-      data: { status: 'FAILED', lastError: 'Sender not found', updatedAt: new Date() },
+      data: { status: 'FAILED', lastError: 'Sender not found', attempts: MAX_JOB_ATTEMPTS, updatedAt: new Date() },
     });
     return;
   }

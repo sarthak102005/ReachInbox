@@ -180,6 +180,42 @@ The dashboard starts on **http://localhost:3000**
 | DB → ES sync | On-demand in worker, not event-sourced | Sufficient for assignment; production would use CDC or Debezium |
 | Sender provisioning | Default Ethereal sender auto-created on first Google login | Reduces friction for the first compose |
 | In-flight jobs & restarts | Graceful shutdown (`worker.close()`) + 30s reconciler grace period | A graceful shutdown (SIGTERM) drains in-flight sends before exit; only a hard crash (SIGKILL/OOM) between the SMTP call and the SENT write can leave a job in SENDING, which the reconciler now only reclaims after a 30s grace period to avoid double-sending. The reconciler runs once at boot; a job caught inside the 30s SENDING grace period at that exact moment will only be re-evaluated on a subsequent restart. A production system would run this on a recurring schedule (or a BullMQ repeatable job) rather than boot-only. |
+| Automatic Job Retries | Claim guard accepts `FAILED` jobs when `attempts < 3` | Built-in BullMQ exponential backoff handles transient SMTP timeouts up to 3 attempts, after which the job remains permanently `FAILED` with `lastError` logged. |
+
+---
+
+## Cloud Hosting & Outbound SMTP Policies
+
+### The Cloud Free-Tier SMTP Limitation
+Most modern cloud hosting providers (including **Render**, **Railway**, **AWS EC2**, and **GCP**) enforce strict network-level firewall policies that block outbound TCP traffic on standard SMTP ports (**25, 465, 587**) and alternate submission ports (**2525**) on free/entry-level tiers to prevent spam abuse:
+
+- **Hosted Environments (e.g. Render Free Tier)**: Outbound socket connections to raw SMTP servers (including `smtp.ethereal.email`) time out (`ETIMEDOUT`) due to this hosting firewall restriction. For hosted production deployments, cloud providers recommend using HTTP/REST API-based email services (such as **Resend**, **SendGrid API**, or **Mailgun**) over HTTPS (port 443), which are never subject to SMTP port blocking.
+- **Local Development / Evaluation**: Running locally connects directly to Ethereal SMTP over port **587 with STARTTLS** (`requireTLS: true`) with 100% fidelity. Sent emails generate real preview URLs on `ethereal.email` and are logged to `stdout`.
+
+---
+
+## Production Deployment (Vercel + Render)
+
+### Backend (Render Web Service)
+1. **Build Command**: `npm install && npm run build && npx prisma generate`
+2. **Start Command**: `npm run start`
+3. **Environment Variables**:
+   - `DATABASE_URL`: Cloud PostgreSQL (e.g. Render Postgres, Neon, or Supabase)
+   - `REDIS_URL`: Cloud Redis (e.g. Upstash, Aiven, or Redis Cloud)
+   - `ELASTICSEARCH_URL`: Elasticsearch node URL
+   - `SESSION_SECRET`: Random 32+ character string
+   - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`: From Google Cloud Console
+   - `GOOGLE_CALLBACK_URL`: `https://<your-backend>.onrender.com/api/auth/google/callback`
+   - `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`: From Slack API Apps
+   - `SLACK_CALLBACK_URL`: `https://<your-backend>.onrender.com/api/slack/callback`
+   - `FRONTEND_URL`: `https://<your-app>.vercel.app`
+   - `NODE_ENV`: `production`
+
+### Frontend (Vercel)
+1. **Framework Preset**: Next.js
+2. **Environment Variables**:
+   - `BACKEND_URL`: `https://<your-backend>.onrender.com`
+   - `NEXT_PUBLIC_API_URL`: `https://<your-backend>.onrender.com`
 
 ---
 
@@ -205,7 +241,7 @@ The dashboard starts on **http://localhost:3000**
 
 ### Idempotency Proof
 ```bash
-# The conditional UPDATE ensures status must be SCHEDULED/RESCHEDULED
+# The conditional UPDATE ensures status must be SCHEDULED/RESCHEDULED (or FAILED for retry)
 # A second worker claiming the same job sees 0 rows returned → returns immediately
 # Check DB: sentAt populated exactly once
 ```

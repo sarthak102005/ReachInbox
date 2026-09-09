@@ -25,3 +25,6 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Internal docs & scratch plans
+reachinbox-scheduler-plan.md
